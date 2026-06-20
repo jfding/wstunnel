@@ -25,6 +25,7 @@ arc-swap = { version = "1.9.1", features = [] }
 regex = { version = "1.12.3", default-features = false, features = ["std", "perf"] }
 serde_regex = "1.1.0"
 serde_yaml = { version = "0.9.34", features = [] }
+toml = { version = "0.9", default-features = false, features = ["parse"] }
 ipnet = { version = "2.12.0", features = ["serde"] }
 
 hyper = { version = "1.9.0", features = ["client", "http1", "http2"] }
