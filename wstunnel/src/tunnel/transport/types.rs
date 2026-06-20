@@ -12,7 +12,7 @@ pub enum TransportScheme {
 }
 
 impl TransportScheme {
-    #[cfg(feature = "clap")] // this is only used inside a clap value parser
+    // used by parse_server_url (CLI value parser and TOML config deserializer)
     pub const fn values() -> &'static [Self] {
         &[Self::Ws, Self::Wss, Self::Http, Self::Https]
     }

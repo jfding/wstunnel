@@ -722,7 +722,6 @@ mod parsers {
         Ok(header)
     }
 
-    #[cfg(feature = "clap")]
     pub fn parse_server_url(arg: &str) -> Result<Url, io::Error> {
         let Ok(url) = Url::parse(arg) else {
             return Err(io::Error::new(
