@@ -1,6 +1,6 @@
 [package]
-name = "wstunnel-cli"
-version = "10.5.5"
+name = "webtop-cli"
+version = "1.0.0"
 edition = "2024"
 
 [dependencies]
@@ -10,17 +10,17 @@ fdlimit = "0.3.0"
 tokio = { version = "1.52.1", features = ["full"] }
 tracing = { version = "0.1.44", features = ["log"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "local-time"] }
-wstunnel = { path = "../wstunnel", default-features = false, features = ["clap"] }
+webtop = { path = "../wstunnel", default-features = false, features = ["clap"] }
 
 tikv-jemallocator = { version = "0.6", optional = true }
 
 [features]
 default = ["aws-lc-rs"]
 jemalloc = ["dep:tikv-jemallocator"]
-aws-lc-rs = ["wstunnel/aws-lc-rs"]
-ring = ["wstunnel/ring"]
-aws-lc-rs-bindgen = ["wstunnel/aws-lc-rs-bindgen"]
+aws-lc-rs = ["webtop/aws-lc-rs"]
+ring = ["webtop/ring"]
+aws-lc-rs-bindgen = ["webtop/aws-lc-rs-bindgen"]
 
 [[bin]]
-name = "wstunnel"
+name = "webtop"
 path = "src/main.rs"

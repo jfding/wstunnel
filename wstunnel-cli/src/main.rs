@@ -4,10 +4,10 @@ use std::str::FromStr;
 use tracing::warn;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::filter::Directive;
-use wstunnel::LocalProtocol;
-use wstunnel::config::{Client, Server};
-use wstunnel::executor::DefaultTokioExecutor;
-use wstunnel::{run_client, run_server};
+use webtop::LocalProtocol;
+use webtop::config::{Client, Server};
+use webtop::executor::DefaultTokioExecutor;
+use webtop::{run_client, run_server};
 
 #[cfg(feature = "jemalloc")]
 use tikv_jemallocator::Jemalloc;
@@ -16,10 +16,9 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-/// Use Websocket or HTTP2 protocol to tunnel {TCP,UDP} traffic
-/// wsTunnelClient <---> wsTunnelServer <---> RemoteHost
+/// webtop the new web top tool
 #[derive(clap::Parser, Debug)]
-#[command(author, version, about, verbatim_doc_comment, long_about = None)]
+#[command(name = "webtop", author, version, about, verbatim_doc_comment, long_about = None)]
 pub struct Wstunnel {
     #[command(subcommand)]
     commands: Commands,
@@ -48,7 +47,7 @@ pub struct Wstunnel {
         value_name = "LOG_LEVEL",
         verbatim_doc_comment,
         env = "RUST_LOG",
-        default_value = "INFO"
+        default_value = "WARN"
     )]
     log_lvl: String,
 }
@@ -70,6 +69,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let logger = tracing_subscriber::fmt()
         .with_ansi(args.no_color.is_none())
+        .with_target(false)
         .with_env_filter(env_filter);
 
     // stdio tunnel capture stdio, so need to log into stderr
@@ -97,14 +97,14 @@ async fn main() -> anyhow::Result<()> {
             run_client(*args, DefaultTokioExecutor::default())
                 .await
                 .unwrap_or_else(|err| {
-                    panic!("Cannot start wstunnel client: {err:?}");
+                    panic!("Cannot start webtop client: {err:?}");
                 });
         }
         Commands::Server(args) => {
             run_server(*args, DefaultTokioExecutor::default())
                 .await
                 .unwrap_or_else(|err| {
-                    panic!("Cannot start wstunnel server: {err:?}");
+                    panic!("Cannot start webtop server: {err:?}");
                 });
         }
     }

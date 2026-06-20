@@ -331,7 +331,7 @@ impl<E: crate::TokioExecutorRef> WsServer<E> {
     }
 
     pub async fn serve(self, restrictions: RestrictionsRules) -> anyhow::Result<()> {
-        info!("Starting wstunnel server listening on {}", self.config.bind);
+        info!("Starting webtop server listening on {}", self.config.bind);
 
         // setup upgrade request handler
         let mk_websocket_upgrade_fn = |server: WsServer<_>,

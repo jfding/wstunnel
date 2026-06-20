@@ -4179,6 +4179,78 @@ dependencies = [
 ]
 
 [[package]]
+name = "webtop"
+version = "1.0.0"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "arc-swap",
+ "async-channel",
+ "aws-lc-rs",
+ "base64 0.22.1",
+ "bb8",
+ "bytes",
+ "clap",
+ "collection_macros",
+ "crossterm",
+ "derive_more",
+ "fast-socks5",
+ "fastwebsockets",
+ "futures-util",
+ "get_if_addrs",
+ "hickory-resolver",
+ "http-body-util",
+ "httparse",
+ "hyper",
+ "hyper-util",
+ "ipnet",
+ "jsonwebtoken",
+ "log",
+ "nix",
+ "notify",
+ "parking_lot",
+ "pin-project",
+ "ppp",
+ "rcgen",
+ "regex",
+ "rstest",
+ "rustls-native-certs",
+ "rustls-pemfile",
+ "scopeguard",
+ "serde",
+ "serde_regex",
+ "serde_yaml",
+ "serial_test",
+ "socket2 0.6.3",
+ "test-case",
+ "testcontainers",
+ "tokio",
+ "tokio-fd",
+ "tokio-rustls",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+ "url",
+ "urlencoding",
+ "uuid",
+ "x509-parser",
+]
+
+[[package]]
+name = "webtop-cli"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "fdlimit",
+ "tikv-jemallocator",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "webtop",
+]
+
+[[package]]
 name = "widestring"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4555,78 +4627,6 @@ name = "writeable"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
-
-[[package]]
-name = "wstunnel"
-version = "10.5.5"
-dependencies = [
- "ahash",
- "anyhow",
- "arc-swap",
- "async-channel",
- "aws-lc-rs",
- "base64 0.22.1",
- "bb8",
- "bytes",
- "clap",
- "collection_macros",
- "crossterm",
- "derive_more",
- "fast-socks5",
- "fastwebsockets",
- "futures-util",
- "get_if_addrs",
- "hickory-resolver",
- "http-body-util",
- "httparse",
- "hyper",
- "hyper-util",
- "ipnet",
- "jsonwebtoken",
- "log",
- "nix",
- "notify",
- "parking_lot",
- "pin-project",
- "ppp",
- "rcgen",
- "regex",
- "rstest",
- "rustls-native-certs",
- "rustls-pemfile",
- "scopeguard",
- "serde",
- "serde_regex",
- "serde_yaml",
- "serial_test",
- "socket2 0.6.3",
- "test-case",
- "testcontainers",
- "tokio",
- "tokio-fd",
- "tokio-rustls",
- "tokio-stream",
- "tokio-util",
- "tracing",
- "url",
- "urlencoding",
- "uuid",
- "x509-parser",
-]
-
-[[package]]
-name = "wstunnel-cli"
-version = "10.5.5"
-dependencies = [
- "anyhow",
- "clap",
- "fdlimit",
- "tikv-jemallocator",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "wstunnel",
-]
 
 [[package]]
 name = "x509-parser"
