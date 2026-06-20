@@ -3,12 +3,76 @@ pub use hyper::http::{HeaderName, HeaderValue};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
+use serde::{Deserialize, Deserializer};
 use tokio_rustls::rustls::pki_types::DnsName;
 use url::{Host, Url};
 
 pub const DEFAULT_CLIENT_UPGRADE_PATH_PREFIX: &str = "v1";
 
-#[derive(Clone, Debug)]
+// ---- defaults for fields whose CLI default is not the type's zero value ----
+fn default_connection_retry_max_backoff() -> Duration {
+    Duration::from_secs(300) // "5m"
+}
+fn default_reverse_connection_retry_max_backoff() -> Duration {
+    Duration::from_secs(1) // "1s"
+}
+fn default_http_upgrade_path_prefix() -> String {
+    DEFAULT_CLIENT_UPGRADE_PATH_PREFIX.to_string()
+}
+fn default_websocket_ping_frequency() -> Option<Duration> {
+    Some(Duration::from_secs(30)) // "30s"
+}
+
+// ---- deserializers that reuse the CLI parsers (single source of truth) ----
+fn de_tunnels<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<LocalToRemote>, D::Error> {
+    Vec::<String>::deserialize(d)?
+        .into_iter()
+        .map(|s| parsers::parse_tunnel_arg(&s).map_err(serde::de::Error::custom))
+        .collect()
+}
+fn de_reverse_tunnels<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<LocalToRemote>, D::Error> {
+    Vec::<String>::deserialize(d)?
+        .into_iter()
+        .map(|s| parsers::parse_reverse_tunnel_arg(&s).map_err(serde::de::Error::custom))
+        .collect()
+}
+fn de_duration<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
+    let s = String::deserialize(d)?;
+    parsers::parse_duration_sec(&s).map_err(serde::de::Error::custom)
+}
+fn de_duration_opt<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Duration>, D::Error> {
+    let s = String::deserialize(d)?;
+    parsers::parse_duration_sec(&s).map(Some).map_err(serde::de::Error::custom)
+}
+fn de_server_url<'de, D: Deserializer<'de>>(d: D) -> Result<Url, D::Error> {
+    let s = String::deserialize(d)?;
+    parsers::parse_server_url(&s).map_err(serde::de::Error::custom)
+}
+fn de_url_vec<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Url>, D::Error> {
+    Vec::<String>::deserialize(d)?
+        .into_iter()
+        .map(|s| Url::parse(&s).map_err(serde::de::Error::custom))
+        .collect()
+}
+fn de_sni_override<'de, D: Deserializer<'de>>(d: D) -> Result<Option<DnsName<'static>>, D::Error> {
+    let s = String::deserialize(d)?;
+    parsers::parse_sni_override(&s).map(Some).map_err(serde::de::Error::custom)
+}
+fn de_http_credentials<'de, D: Deserializer<'de>>(d: D) -> Result<Option<HeaderValue>, D::Error> {
+    let s = String::deserialize(d)?;
+    parsers::parse_http_credentials(&s).map(Some).map_err(serde::de::Error::custom)
+}
+fn de_http_headers<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<(HeaderName, HeaderValue)>, D::Error> {
+    Vec::<String>::deserialize(d)?
+        .into_iter()
+        .map(|s| parsers::parse_http_headers(&s).map_err(serde::de::Error::custom))
+        .collect()
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct Client {
     /// Listen on local and forwards traffic from remote. Can be specified multiple times
@@ -34,6 +98,7 @@ pub struct Client {
     ///
     /// 'unix:///tmp/wstunnel.sock:g.com:443' =>  listen for data from unix socket of path /tmp/wstunnel.sock and forward to g.com:443
     #[cfg_attr(feature = "clap", arg(short='L', long, value_name = "{tcp,udp,socks5,stdio,unix}://[BIND:]PORT:HOST:PORT", value_parser = parsers::parse_tunnel_arg, verbatim_doc_comment))]
+    #[serde(default, deserialize_with = "de_tunnels")]
     pub local_to_remote: Vec<LocalToRemote>,
 
     /// Listen on remote and forwards traffic from local. Can be specified multiple times. Only tcp is supported
@@ -44,11 +109,13 @@ pub struct Client {
     /// 'http://[::1]:1212'         =>     listen on server for incoming http proxy request on port 1212 and forward dynamically request from local machine (login/password is supported)
     /// 'unix://wstunnel.sock:g.com:443' =>     listen on server for incoming data from unix socket of path wstunnel.sock and forward to g.com:443 from local machine
     #[cfg_attr(feature = "clap", arg(short='R', long, value_name = "{tcp,udp,socks5,unix}://[BIND:]PORT:HOST:PORT", value_parser = parsers::parse_reverse_tunnel_arg, verbatim_doc_comment))]
+    #[serde(default, deserialize_with = "de_reverse_tunnels")]
     pub remote_to_local: Vec<LocalToRemote>,
 
     /// (linux only) Mark network packet with SO_MARK sockoption with the specified value.
     /// You need to use {root, sudo, capabilities} to run wstunnel when using this option
     #[cfg_attr(feature = "clap", arg(long, value_name = "INT", verbatim_doc_comment))]
+    #[serde(default)]
     pub socket_so_mark: Option<u32>,
 
     /// Client will maintain a pool of open connection to the server, in order to speed up the connection process.
@@ -59,6 +126,7 @@ pub struct Client {
         feature = "clap",
         arg(short = 'c', long, value_name = "INT", default_value = "0", verbatim_doc_comment)
     )]
+    #[serde(default)]
     pub connection_min_idle: u32,
 
     /// The maximum of time in seconds while we are going to try to connect to the server before failing the connection/tunnel request
@@ -70,6 +138,7 @@ pub struct Client {
         alias = "connection-retry-max-backoff-sec",
         verbatim_doc_comment
     ))]
+    #[serde(default = "default_connection_retry_max_backoff", deserialize_with = "de_duration")]
     pub connection_retry_max_backoff: Duration,
 
     /// When using reverse tunnel, the client will try to always keep a connection to the server to await for new tunnels
@@ -84,12 +153,14 @@ pub struct Client {
         alias = "reverse-tunnel-connection-retry-max-backoff-sec",
         verbatim_doc_comment
     ))]
+    #[serde(default = "default_reverse_connection_retry_max_backoff", deserialize_with = "de_duration")]
     pub reverse_tunnel_connection_retry_max_backoff: Duration,
 
     /// Domain name that will be used as SNI during TLS handshake
     /// Warning: If you are behind a CDN (i.e: Cloudflare) you must set this domain also in the http HOST header.
     ///          or it will be flagged as fishy and your request rejected
     #[cfg_attr(feature = "clap", arg(long, value_name = "DOMAIN_NAME", value_parser = parsers::parse_sni_override, verbatim_doc_comment))]
+    #[serde(default, deserialize_with = "de_sni_override")]
     pub tls_sni_override: Option<DnsName<'static>>,
 
     /// Disable sending SNI during TLS handshake
@@ -103,16 +174,19 @@ pub struct Client {
             conflicts_with = "tls_ech_enable"
         )
     )]
+    #[serde(default)]
     pub tls_sni_disable: bool,
 
     /// Enable ECH (encrypted sni) during TLS handshake to wstunnel server.
     /// Warning: Ech DNS config is not refreshed over time. It is retrieved only once at startup of the program  
     #[cfg_attr(feature = "clap", arg(long, verbatim_doc_comment))]
+    #[serde(default)]
     pub tls_ech_enable: bool,
 
     /// Enable TLS certificate verification.
     /// Disabled by default. The client will happily connect to any server with self-signed certificate.
     #[cfg_attr(feature = "clap", arg(long, verbatim_doc_comment))]
+    #[serde(default)]
     pub tls_verify_certificate: bool,
 
     /// If set, will use this http proxy to connect to the server
@@ -126,6 +200,7 @@ pub struct Client {
             env = "HTTP_PROXY"
         )
     )]
+    #[serde(default)]
     pub http_proxy: Option<String>,
 
     /// If set, will use this login to connect to the http proxy. Override the one from --http-proxy
@@ -133,6 +208,7 @@ pub struct Client {
         feature = "clap",
         arg(long, value_name = "LOGIN", verbatim_doc_comment, env = "WSTUNNEL_HTTP_PROXY_LOGIN")
     )]
+    #[serde(default)]
     pub http_proxy_login: Option<String>,
 
     /// If set, will use this password to connect to the http proxy. Override the one from --http-proxy
@@ -145,6 +221,7 @@ pub struct Client {
             env = "WSTUNNEL_HTTP_PROXY_PASSWORD"
         )
     )]
+    #[serde(default)]
     pub http_proxy_password: Option<String>,
 
     /// Use a specific prefix that will show up in the http path during the upgrade request.
@@ -158,11 +235,13 @@ pub struct Client {
         verbatim_doc_comment,
         env = "WSTUNNEL_HTTP_UPGRADE_PATH_PREFIX"
     ))]
+    #[serde(default = "default_http_upgrade_path_prefix")]
     pub http_upgrade_path_prefix: String,
 
     /// Pass authorization header with basic auth credentials during the upgrade request.
     /// If you need more customization, you can use the http_headers option.
     #[cfg_attr(feature = "clap", arg(long, value_name = "USER[:PASS]", value_parser = parsers::parse_http_credentials, verbatim_doc_comment))]
+    #[serde(default, deserialize_with = "de_http_credentials")]
     pub http_upgrade_credentials: Option<HeaderValue>,
 
     /// Frequency at which the client will send websocket pings to the server.
@@ -175,22 +254,26 @@ pub struct Client {
         alias = "websocket-ping-frequency-sec",
         verbatim_doc_comment
     ))]
+    #[serde(default = "default_websocket_ping_frequency", deserialize_with = "de_duration_opt")]
     pub websocket_ping_frequency: Option<Duration>,
 
     /// Enable the masking of websocket frames. Default is false
     /// Enable this option only if you use unsecure (non TLS) websocket server, and you see some issues. Otherwise, it is just overhead.
     #[cfg_attr(feature = "clap", arg(long, default_value = "false", verbatim_doc_comment))]
+    #[serde(default)]
     pub websocket_mask_frame: bool,
 
     /// Send custom headers in the upgrade request
     /// Can be specified multiple time
     #[cfg_attr(feature = "clap", arg(short='H', long, value_name = "HEADER_NAME: HEADER_VALUE", value_parser = parsers::parse_http_headers, verbatim_doc_comment))]
+    #[serde(default, deserialize_with = "de_http_headers")]
     pub http_headers: Vec<(HeaderName, HeaderValue)>,
 
     /// Send custom headers in the upgrade request reading them from a file.
     /// It overrides http_headers specified from command line.
     /// File is read everytime and file format must contain lines with `HEADER_NAME: HEADER_VALUE`
     #[cfg_attr(feature = "clap", arg(long, value_name = "FILE_PATH", verbatim_doc_comment))]
+    #[serde(default)]
     pub http_headers_file: Option<PathBuf>,
 
     /// Address of the wstunnel server
@@ -204,7 +287,8 @@ pub struct Client {
     ///   - if you have wstunnel behind a reverse proxy, most of them (i.e: nginx) are going to turn http2 request into http1
     ///     This is not going to work, because http1 does not support streaming naturally
     ///   - The only way to make it works with http2 is to have wstunnel directly exposed to the internet without any reverse proxy in front of it
-    #[cfg_attr(feature = "clap", arg(value_name = "ws[s]|http[s]://wstunnel.server.com[:port]", value_parser = parsers::parse_server_url, verbatim_doc_comment))]
+    #[cfg_attr(feature = "clap", arg(value_name = "ws[s]|http[s]://wstunnel.server.com[:port]", value_parser = parsers::parse_server_url, verbatim_doc_comment, required_unless_present = "config"))]
+    #[serde(deserialize_with = "de_server_url")]
     pub remote_addr: Url,
 
     /// [Optional] Certificate (pem) to present to the server when connecting over TLS (HTTPS).
@@ -212,11 +296,13 @@ pub struct Client {
     /// Unless overridden, the HTTP upgrade path will be configured to be the common name (CN) of the certificate.
     /// The certificate will be automatically reloaded if it changes
     #[cfg_attr(feature = "clap", arg(long, value_name = "FILE_PATH", verbatim_doc_comment))]
+    #[serde(default)]
     pub tls_certificate: Option<PathBuf>,
 
     /// [Optional] The private key for the corresponding certificate used with mTLS.
     /// The certificate will be automatically reloaded if it changes
     #[cfg_attr(feature = "clap", arg(long, value_name = "FILE_PATH", verbatim_doc_comment))]
+    #[serde(default)]
     pub tls_private_key: Option<PathBuf>,
 
     /// Dns resolver to use to lookup ips of domain name. Can be specified multiple time
@@ -230,6 +316,7 @@ pub struct Client {
     ///
     /// **WARN** On windows you may want to specify explicitly the DNS resolver to avoid excessive DNS queries
     #[cfg_attr(feature = "clap", arg(long, verbatim_doc_comment))]
+    #[serde(default, deserialize_with = "de_url_vec")]
     pub dns_resolver: Vec<Url>,
 
     /// Enable if you prefer the dns resolver to prioritize IPv4 over IPv6
@@ -244,7 +331,37 @@ pub struct Client {
             verbatim_doc_comment
         )
     )]
+    #[serde(default)]
     pub dns_resolver_prefer_ipv4: bool,
+
+    /// Read all client settings from a TOML config file.
+    /// When set, no other client option may be provided.
+    #[cfg_attr(feature = "clap", arg(
+        long,
+        value_name = "FILE_PATH",
+        verbatim_doc_comment,
+        conflicts_with_all = ["local_to_remote", "remote_to_local", "socket_so_mark",
+            "connection_min_idle", "connection_retry_max_backoff",
+            "reverse_tunnel_connection_retry_max_backoff", "tls_sni_override",
+            "tls_sni_disable", "tls_ech_enable", "tls_verify_certificate", "http_proxy",
+            "http_proxy_login", "http_proxy_password", "http_upgrade_path_prefix",
+            "http_upgrade_credentials", "websocket_ping_frequency", "websocket_mask_frame",
+            "http_headers", "http_headers_file", "remote_addr", "tls_certificate",
+            "tls_private_key", "dns_resolver", "dns_resolver_prefer_ipv4"]
+    ))]
+    #[serde(skip)]
+    pub config: Option<PathBuf>,
+}
+
+impl Client {
+    /// Load a client configuration from a TOML file.
+    pub fn from_config_file(path: &std::path::Path) -> anyhow::Result<Client> {
+        use anyhow::Context;
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("Cannot read client config file: {}", path.display()))?;
+        toml::from_str::<Client>(&content)
+            .with_context(|| format!("Cannot parse client config file: {}", path.display()))
+    }
 }
 
 #[derive(Debug)]
@@ -755,6 +872,7 @@ mod parsers {
         use test_case::test_case;
         use url::Host;
 
+
         #[test_case("localhost:443" => (Host::Domain("localhost".to_string()), 443, BTreeMap::new()) ; "with domain")]
         #[test_case("localhost:443?timeout_sec=0" => (Host::Domain("localhost".to_string()), 443, btreemap! { "timeout_sec".to_string() => "0".to_string() } ) ; "with domain and options")]
         #[test_case("127.0.0.1:443" => (Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), 443, BTreeMap::new()) ; "with IPv4")]
@@ -802,5 +920,110 @@ mod parsers {
         fn test_parse_tunnel_arg(input: &str) -> LocalToRemote {
             parse_tunnel_arg(input).unwrap()
         }
+    }
+}
+
+#[cfg(test)]
+mod config_file_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn minimal_applies_cli_defaults() {
+        let toml = r#"
+            remote_addr = "wss://server.example.com:443"
+            local_to_remote = ["tcp://1212:google.com:443"]
+        "#;
+        let c: Client = toml::from_str(toml).expect("should parse");
+        assert_eq!(c.remote_addr.as_str(), "wss://server.example.com/");
+        assert_eq!(c.local_to_remote.len(), 1);
+        assert_eq!(c.remote_to_local.len(), 0);
+        // defaults matching the CLI
+        assert_eq!(c.connection_min_idle, 0);
+        assert_eq!(c.connection_retry_max_backoff, Duration::from_secs(300));
+        assert_eq!(c.reverse_tunnel_connection_retry_max_backoff, Duration::from_secs(1));
+        assert_eq!(c.http_upgrade_path_prefix, "v1");
+        assert_eq!(c.websocket_ping_frequency, Some(Duration::from_secs(30)));
+        assert!(!c.tls_verify_certificate);
+        assert!(c.config.is_none());
+    }
+
+    #[test]
+    fn multiple_tunnels_parse() {
+        let toml = r#"
+            remote_addr = "wss://server.example.com:443"
+            local_to_remote = [
+              "tcp://1212:google.com:443",
+              "udp://1212:1.1.1.1:53?timeout_sec=10",
+              "socks5://[::1]:1212",
+            ]
+            remote_to_local = ["tcp://1213:google.com:443"]
+        "#;
+        let c: Client = toml::from_str(toml).expect("should parse");
+        assert_eq!(c.local_to_remote.len(), 3);
+        assert_eq!(c.remote_to_local.len(), 1);
+    }
+
+    #[test]
+    fn full_config_parses_values() {
+        let toml = r#"
+            remote_addr = "wss://server.example.com:443"
+            local_to_remote = ["tcp://1212:google.com:443"]
+            tls_verify_certificate = true
+            connection_min_idle = 5
+            connection_retry_max_backoff = "5m"
+            websocket_ping_frequency = "10s"
+            http_upgrade_path_prefix = "secret"
+            http_headers = ["X-Foo: bar", "X-Baz: qux"]
+            dns_resolver = ["dns://1.1.1.1"]
+        "#;
+        let c: Client = toml::from_str(toml).expect("should parse");
+        assert!(c.tls_verify_certificate);
+        assert_eq!(c.connection_min_idle, 5);
+        assert_eq!(c.connection_retry_max_backoff, Duration::from_secs(300));
+        assert_eq!(c.websocket_ping_frequency, Some(Duration::from_secs(10)));
+        assert_eq!(c.http_upgrade_path_prefix, "secret");
+        assert_eq!(c.http_headers.len(), 2);
+        assert_eq!(c.dns_resolver.len(), 1);
+    }
+
+    #[test]
+    fn unknown_key_is_rejected() {
+        let toml = r#"
+            remote_addr = "wss://server.example.com:443"
+            bogus_key = 1
+        "#;
+        assert!(toml::from_str::<Client>(toml).is_err());
+    }
+
+    #[test]
+    fn missing_remote_addr_is_rejected() {
+        let toml = r#"
+            local_to_remote = ["tcp://1212:google.com:443"]
+        "#;
+        assert!(toml::from_str::<Client>(toml).is_err());
+    }
+
+    #[test]
+    fn malformed_tunnel_is_rejected() {
+        let toml = r#"
+            remote_addr = "wss://server.example.com:443"
+            local_to_remote = ["this-is-not-a-tunnel"]
+        "#;
+        assert!(toml::from_str::<Client>(toml).is_err());
+    }
+
+    #[test]
+    fn from_config_file_reads_and_parses() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("webtop_test_from_config_file.toml");
+        std::fs::write(
+            &path,
+            "remote_addr = \"wss://server.example.com:443\"\nlocal_to_remote = [\"tcp://1212:google.com:443\"]\n",
+        )
+        .unwrap();
+        let c = Client::from_config_file(&path).expect("should load");
+        assert_eq!(c.local_to_remote.len(), 1);
+        let _ = std::fs::remove_file(&path);
     }
 }
