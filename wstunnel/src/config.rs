@@ -872,7 +872,6 @@ mod parsers {
         use test_case::test_case;
         use url::Host;
 
-
         #[test_case("localhost:443" => (Host::Domain("localhost".to_string()), 443, BTreeMap::new()) ; "with domain")]
         #[test_case("localhost:443?timeout_sec=0" => (Host::Domain("localhost".to_string()), 443, btreemap! { "timeout_sec".to_string() => "0".to_string() } ) ; "with domain and options")]
         #[test_case("127.0.0.1:443" => (Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), 443, BTreeMap::new()) ; "with IPv4")]
@@ -971,7 +970,7 @@ mod config_file_tests {
             local_to_remote = ["tcp://1212:google.com:443"]
             tls_verify_certificate = true
             connection_min_idle = 5
-            connection_retry_max_backoff = "5m"
+            connection_retry_max_backoff = "10m"
             websocket_ping_frequency = "10s"
             http_upgrade_path_prefix = "secret"
             http_headers = ["X-Foo: bar", "X-Baz: qux"]
@@ -980,7 +979,7 @@ mod config_file_tests {
         let c: Client = toml::from_str(toml).expect("should parse");
         assert!(c.tls_verify_certificate);
         assert_eq!(c.connection_min_idle, 5);
-        assert_eq!(c.connection_retry_max_backoff, Duration::from_secs(300));
+        assert_eq!(c.connection_retry_max_backoff, Duration::from_secs(600));
         assert_eq!(c.websocket_ping_frequency, Some(Duration::from_secs(10)));
         assert_eq!(c.http_upgrade_path_prefix, "secret");
         assert_eq!(c.http_headers.len(), 2);
