@@ -2,6 +2,9 @@
 #
 # Usage:  wstunnel client --config docs/client-config.sample.toml
 #
+# Or name it `.webtop.toml` in your working directory and just run `wstunnel client`
+# (auto-loaded when no --config and no server URL are given on the command line).
+#
 # Notes:
 #   * Keys use underscores (the Rust field names), NOT the dashes of the CLI flags.
 #     e.g. CLI `--http-upgrade-path-prefix`  ->  TOML `http_upgrade_path_prefix`.

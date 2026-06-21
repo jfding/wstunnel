@@ -1,5 +1,6 @@
 use clap::Parser;
 use std::io;
+use std::path::PathBuf;
 use std::str::FromStr;
 use tracing::warn;
 use tracing_subscriber::EnvFilter;
@@ -15,6 +16,30 @@ use tikv_jemallocator::Jemalloc;
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
+
+/// Default client config file looked up in the current directory when neither `--config`
+/// nor a server URL is given on the command line.
+const DEFAULT_CLIENT_CONFIG_FILE: &str = ".webtop.toml";
+
+/// Decide where the effective client config comes from:
+///   1. `--config <FILE>` explicitly given  -> load that file (config-only).
+///   2. no server URL on the CLI            -> load `default_config_path` if present,
+///                                             else error (nothing to connect to).
+///   3. a server URL was given on the CLI    -> use the CLI args as-is.
+fn resolve_client_config(c: &Client, default_config_path: Option<PathBuf>) -> anyhow::Result<Client> {
+    if let Some(path) = &c.config {
+        return Client::from_config_file(path);
+    }
+    if c.remote_addr_is_placeholder() {
+        if let Some(path) = default_config_path {
+            return Client::from_config_file(&path);
+        }
+        anyhow::bail!(
+            "no server URL provided. Pass it on the command line, use --config <FILE>, or create {DEFAULT_CLIENT_CONFIG_FILE} in the current directory"
+        );
+    }
+    Ok(c.clone())
+}
 
 /// webtop the new web top tool
 #[derive(clap::Parser, Debug)]
@@ -66,10 +91,10 @@ async fn main() -> anyhow::Result<()> {
     // --config is given. Done before logging setup because a stdio tunnel (which
     // may be defined in the file) requires logs to go to stderr.
     let client: Option<Client> = match &args.commands {
-        Commands::Client(c) => Some(match &c.config {
-            Some(path) => Client::from_config_file(path)?,
-            None => (**c).clone(),
-        }),
+        Commands::Client(c) => {
+            let default_config = Some(PathBuf::from(DEFAULT_CLIENT_CONFIG_FILE)).filter(|p| p.exists());
+            Some(resolve_client_config(c, default_config)?)
+        }
         Commands::Server(_) => None,
     };
 
@@ -149,9 +174,51 @@ mod cli_tests {
         assert!(res.is_err(), "expected conflict error, got {res:?}");
     }
 
+    fn parse_client(argv: &[&str]) -> webtop::config::Client {
+        let w = Wstunnel::try_parse_from(argv).unwrap_or_else(|e| panic!("parse failed: {e}"));
+        match w.commands {
+            Commands::Client(c) => *c,
+            Commands::Server(_) => panic!("expected client subcommand"),
+        }
+    }
+
     #[test]
-    fn client_without_config_requires_server_url() {
-        let res = Wstunnel::try_parse_from(["webtop", "client", "-L", "tcp://1212:google.com:443"]);
-        assert!(res.is_err(), "expected missing-remote_addr error, got {res:?}");
+    fn bare_client_without_default_file_errors() {
+        let c = parse_client(&["webtop", "client"]);
+        let res = resolve_client_config(&c, None);
+        assert!(res.is_err(), "expected error when no URL and no default file, got {res:?}");
+    }
+
+    #[test]
+    fn bare_client_loads_default_file_when_present() {
+        let path = std::env::temp_dir().join("webtop_default_file_test.toml");
+        std::fs::write(&path, "remote_addr = \"ws://from-file.example:8080\"\n").unwrap();
+        let c = parse_client(&["webtop", "client"]);
+        let resolved = resolve_client_config(&c, Some(path.clone())).expect("should load default file");
+        assert_eq!(resolved.remote_addr.as_str(), "ws://from-file.example:8080/");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn cli_server_url_ignores_default_file() {
+        let path = std::env::temp_dir().join("webtop_ignored_file_test.toml");
+        std::fs::write(&path, "remote_addr = \"ws://from-file.example:8080\"\n").unwrap();
+        let c = parse_client(&["webtop", "client", "ws://from-cli.example:9090"]);
+        let resolved = resolve_client_config(&c, Some(path.clone())).expect("ok");
+        assert_eq!(resolved.remote_addr.as_str(), "ws://from-cli.example:9090/");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn explicit_config_flag_wins_over_default_file() {
+        let explicit = std::env::temp_dir().join("webtop_explicit_cfg_test.toml");
+        let other = std::env::temp_dir().join("webtop_other_default_test.toml");
+        std::fs::write(&explicit, "remote_addr = \"ws://explicit.example:7070\"\n").unwrap();
+        std::fs::write(&other, "remote_addr = \"ws://default.example:1010\"\n").unwrap();
+        let c = parse_client(&["webtop", "client", "--config", explicit.to_str().unwrap()]);
+        let resolved = resolve_client_config(&c, Some(other.clone())).expect("ok");
+        assert_eq!(resolved.remote_addr.as_str(), "ws://explicit.example:7070/");
+        let _ = std::fs::remove_file(&explicit);
+        let _ = std::fs::remove_file(&other);
     }
 }

@@ -294,6 +294,21 @@ http_upgrade_path_prefix = "v1"
 
 Unknown keys are rejected, so typos fail fast rather than being silently ignored.
 
+#### Default config file
+
+If you do **not** pass `--config` and do **not** give a server URL on the command
+line, wstunnel looks for a file named `.webtop.toml` in the current directory and
+loads it if present (ignored if absent). So in a directory containing `.webtop.toml`
+you can simply run:
+
+```bash
+wstunnel client
+```
+
+Anything you do pass on the command line takes precedence: `wstunnel client wss://…`
+(or any other client option) uses the command-line values and the default file is
+ignored. With neither a server URL nor a config file, the client exits with an error.
+
 ```
 SERVER
 Usage: wstunnel server [OPTIONS] <ws[s]://0.0.0.0[:port]>

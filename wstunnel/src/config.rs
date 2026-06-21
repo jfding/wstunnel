@@ -9,6 +9,12 @@ use url::{Host, Url};
 
 pub const DEFAULT_CLIENT_UPGRADE_PATH_PREFIX: &str = "v1";
 
+/// Deliberately-unusable placeholder for `remote_addr`. `remote_addr` is a non-Option
+/// positional, so clap needs a value even when the URL comes from `--config` or the
+/// default config file. The CLI detects this value via [`Client::remote_addr_is_placeholder`]
+/// to know the user did not pass a server URL on the command line.
+pub const PLACEHOLDER_REMOTE_ADDR: &str = "ws://placeholder.invalid";
+
 // ---- defaults for fields whose CLI default is not the type's zero value ----
 fn default_connection_retry_max_backoff() -> Duration {
     Duration::from_secs(300) // "5m"
@@ -287,12 +293,12 @@ pub struct Client {
     ///   - if you have wstunnel behind a reverse proxy, most of them (i.e: nginx) are going to turn http2 request into http1
     ///     This is not going to work, because http1 does not support streaming naturally
     ///   - The only way to make it works with http2 is to have wstunnel directly exposed to the internet without any reverse proxy in front of it
-    // `default_value` is a deliberately-unusable placeholder: `remote_addr` is a
-    // non-Option positional, so clap needs a value when `--config` is given instead
-    // of a server URL. `required_unless_present = "config"` keeps the URL required
-    // when `--config` is absent, and `Client::from_config_file` overwrites the whole
-    // struct when it is present, so this placeholder is never used at runtime.
-    #[cfg_attr(feature = "clap", arg(value_name = "ws[s]|http[s]://wstunnel.server.com[:port]", value_parser = parsers::parse_server_url, verbatim_doc_comment, required = false, required_unless_present = "config", default_value = "ws://placeholder.invalid"))]
+    // `default_value` is a deliberately-unusable placeholder (see PLACEHOLDER_REMOTE_ADDR):
+    // `remote_addr` is a non-Option positional, so clap always needs a value even when the
+    // URL is supplied via --config or the default .webtop.toml file. `required = false` lets
+    // a bare `wstunnel client` parse; the CLI then resolves the effective config and rejects
+    // the placeholder when no URL/config file is found. `remote_addr_is_placeholder()` detects it.
+    #[cfg_attr(feature = "clap", arg(value_name = "ws[s]|http[s]://wstunnel.server.com[:port]", value_parser = parsers::parse_server_url, verbatim_doc_comment, required = false, default_value = PLACEHOLDER_REMOTE_ADDR))]
     #[serde(deserialize_with = "de_server_url")]
     pub remote_addr: Url,
 
@@ -368,6 +374,13 @@ impl Client {
             .with_context(|| format!("Cannot parse client config file: {}", path.display()))?;
         client.validate()?;
         Ok(client)
+    }
+
+    /// True when `remote_addr` was not provided on the command line and still holds the
+    /// [`PLACEHOLDER_REMOTE_ADDR`] default. Used by the CLI to decide whether to fall back
+    /// to the default config file.
+    pub fn remote_addr_is_placeholder(&self) -> bool {
+        self.remote_addr == Url::parse(PLACEHOLDER_REMOTE_ADDR).expect("valid placeholder url")
     }
 
     fn validate(&self) -> anyhow::Result<()> {
