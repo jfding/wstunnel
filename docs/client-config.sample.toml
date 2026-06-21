@@ -1,0 +1,118 @@
+# wstunnel client config — sample
+#
+# Usage:  wstunnel client --config docs/client-config.sample.toml
+#
+# Notes:
+#   * Keys use underscores (the Rust field names), NOT the dashes of the CLI flags.
+#     e.g. CLI `--http-upgrade-path-prefix`  ->  TOML `http_upgrade_path_prefix`.
+#   * Unknown/typo'd keys are rejected with an error that lists every valid key.
+#   * `--config` is client-only and cannot be combined with any other client flag.
+#   * Only `remote_addr` is required. Every other key is optional and falls back to
+#     the same default as the command line; the default is shown in [brackets] below.
+#   * Durations accept the same syntax as the CLI: "30s", "5m", "1h".
+
+# ── Server (required) ─────────────────────────────────────────────────────────
+
+# Address of the wstunnel server. ws/wss = websocket, http/https = http2.
+remote_addr = "wss://wstunnel.example.com:443"
+
+# ── Tunnels (same URL syntax as -L / --local-to-remote and -R / --remote-to-local)
+
+# Local-to-remote: listen locally, forward to remote. Add as many as you need.
+# (Use distinct local ports — each entry binds its own socket.)
+local_to_remote = [
+  "tcp://1212:google.com:443",                  # local tcp 1212  -> google.com:443
+  "udp://1213:1.1.1.1:53?timeout_sec=10",       # udp, 10s idle timeout (0 disables)
+  "socks5://[::1]:1080",                         # local socks5 proxy
+  "socks5://[::1]:1081?login=admin&password=admin",
+  "http://[::1]:8080",                           # local http proxy
+  # Other supported forms (need privileges / capture stdio — enable as needed):
+  # "tproxy+tcp://[::1]:1212",                   # transparent proxy (linux, needs CAP_NET_ADMIN)
+  # "tproxy+udp://[::1]:1212?timeout_sec=10",
+  # "stdio://google.com:443",                    # for ssh ProxyCommand
+  # "unix:///tmp/wstunnel.sock:g.com:443",       # unix socket -> g.com:443
+]
+
+# Reverse tunnels: server listens, traffic forwarded from this machine.
+remote_to_local = [
+  "tcp://1214:google.com:443",
+  "socks5://[::1]:1082",
+]
+
+# ── Connection / retry ──────────────────────────────────────────────────────
+
+# Keep N idle connections pre-opened to the server to cut handshake latency. [0]
+connection_min_idle = 0
+
+# Max backoff before giving up a (re)connection attempt. [5m]
+connection_retry_max_backoff = "5m"
+
+# Reverse-tunnel: max backoff between reconnect attempts (exp backoff). [1s]
+reverse_tunnel_connection_retry_max_backoff = "1s"
+
+# (linux only) SO_MARK value on packets — needs root/sudo/capabilities. [unset]
+# socket_so_mark = 255
+
+# ── TLS ──────────────────────────────────────────────────────────────────────
+
+# Verify the server's TLS certificate. [false — accepts self-signed by default]
+tls_verify_certificate = false
+
+# Domain used as SNI during the TLS handshake. [unset — uses remote_addr host]
+# tls_sni_override = "example.com"
+
+# Disable sending SNI entirely. [false]
+# WARNING: conflicts with tls_sni_override and tls_ech_enable — set only ONE.
+# tls_sni_disable = true
+
+# Enable ECH (encrypted SNI). [false]
+# tls_ech_enable = false
+
+# mTLS: client certificate (PEM) + its private key to present to the server. [unset]
+# tls_certificate = "/etc/wstunnel/client.pem"
+# tls_private_key = "/etc/wstunnel/client.key"
+
+# ── HTTP upgrade / headers ───────────────────────────────────────────────────
+
+# Path prefix used in the HTTP upgrade request. [v1]
+http_upgrade_path_prefix = "v1"
+
+# Basic-auth credentials sent on the upgrade request, "user" or "user:pass". [unset]
+# http_upgrade_credentials = "user:password"
+
+# Extra headers on the upgrade request, each "Header-Name: value". [none]
+http_headers = [
+  "X-Custom-Header: value",
+]
+
+# Read upgrade headers from a file instead (overrides http_headers). [unset]
+# http_headers_file = "/etc/wstunnel/headers.txt"
+
+# ── Outbound HTTP proxy (to reach the server) ────────────────────────────────
+
+# Proxy to tunnel through, "USER:PASS@HOST:PORT". [unset]
+# http_proxy = "user:pass@proxy.example.com:8080"
+# http_proxy_login = "user"        # overrides the login from http_proxy
+# http_proxy_password = "pass"     # overrides the password from http_proxy
+
+# ── WebSocket ────────────────────────────────────────────────────────────────
+
+# Ping frequency to keep the connection alive; "0s" disables. [30s]
+websocket_ping_frequency = "30s"
+
+# Mask websocket frames — only needed for some non-TLS setups. [false]
+websocket_mask_frame = false
+
+# ── DNS ──────────────────────────────────────────────────────────────────────
+
+# Custom DNS resolver(s). Omit to use the system resolver. [system]
+#   dns://1.1.1.1                                  udp
+#   dns+https://1.1.1.1?sni=cloudflare-dns.com     DNS-over-HTTPS
+#   dns+tls://8.8.8.8?sni=dns.google               DNS-over-TLS
+#   system://0.0.0.0                               libc resolver
+dns_resolver = [
+  "dns://1.1.1.1",
+]
+
+# Prefer IPv4 over IPv6 when resolving. [false]
+dns_resolver_prefer_ipv4 = false
