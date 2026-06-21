@@ -253,6 +253,47 @@ Options:
           **WARN** On windows you may want to specify explicitly the DNS resolver to avoid excessive DNS queries
 ```
 
+### Client config file
+
+Instead of passing client options on the command line, you can put them all in a
+TOML file and run:
+
+```bash
+wstunnel client --config tunnels.toml
+```
+
+`--config` is **client-only** and cannot be combined with any other client
+option. Keys match the long option names, and tunnels use the same URL syntax as
+`-L`/`-R`. Only `remote_addr` is required; every other key falls back to the same
+default as the command line.
+
+```toml
+# server URL (the only required key)
+remote_addr = "wss://server.example.com:443"
+
+# tunnels — same syntax as -L / -R, listed in arrays
+local_to_remote = [
+  "tcp://1212:google.com:443",
+  "udp://1212:1.1.1.1:53?timeout_sec=10",
+  "socks5://[::1]:1212",
+]
+remote_to_local = ["tcp://1213:google.com:443"]
+
+# optional settings (omit any you don't need)
+tls_verify_certificate = true
+tls_sni_override = "example.com"
+http_proxy = "user:pass@host:8080"
+connection_min_idle = 5
+connection_retry_max_backoff = "5m"
+websocket_ping_frequency = "30s"
+http_headers = ["X-Foo: bar"]
+http_upgrade_credentials = "user:pass"
+dns_resolver = ["dns://1.1.1.1"]
+http_upgrade_path_prefix = "v1"
+```
+
+Unknown keys are rejected, so typos fail fast rather than being silently ignored.
+
 ```
 SERVER
 Usage: wstunnel server [OPTIONS] <ws[s]://0.0.0.0[:port]>
