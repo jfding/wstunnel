@@ -4211,7 +4211,7 @@ dependencies = [
 
 [[package]]
 name = "webtop"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4270,7 +4270,7 @@ dependencies = [
 
 [[package]]
 name = "webtop-cli"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "clap",
