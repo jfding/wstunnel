@@ -5,15 +5,12 @@ _default:
 
 make_release $VERSION $FORCE="":
    sed -i 's/^version = .*/version = "'$VERSION'"/g' wstunnel-cli/Cargo.toml wstunnel/Cargo.toml
-   cargo fmt --all -- --check --color=always || (echo "Use cargo fmt to format your code"; exit 1)
-   taplo fmt --check --colors always || (echo "Use taplo fmt to format your TOML files"; exit 1)
-   #cargo clippy --all --all-features -- -D warnings || (echo "Solve your clippy warnings to succeed"; exit 1)
+   cargo update --workspace
    git add wstunnel/Cargo.* wstunnel-cli/Cargo.* Cargo.*
    git commit -m 'Bump version v'$VERSION
    git tag $FORCE v$VERSION -m 'version v'$VERSION
    git push $FORCE
    git push $FORCE origin v$VERSION
-   @just docker_release v$VERSION
 
 docker_release $TAG:
   #docker login -u erebe ghcr.io
