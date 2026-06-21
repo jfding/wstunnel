@@ -364,8 +364,22 @@ impl Client {
         use anyhow::Context;
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Cannot read client config file: {}", path.display()))?;
-        toml::from_str::<Client>(&content)
-            .with_context(|| format!("Cannot parse client config file: {}", path.display()))
+        let client: Client = toml::from_str(&content)
+            .with_context(|| format!("Cannot parse client config file: {}", path.display()))?;
+        client.validate()?;
+        Ok(client)
+    }
+
+    fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !(self.tls_sni_disable && self.tls_sni_override.is_some()),
+            "tls_sni_disable cannot be used together with tls_sni_override"
+        );
+        anyhow::ensure!(
+            !(self.tls_sni_disable && self.tls_ech_enable),
+            "tls_sni_disable cannot be used together with tls_ech_enable"
+        );
+        Ok(())
     }
 }
 
@@ -1029,5 +1043,27 @@ mod config_file_tests {
         let c = Client::from_config_file(&path).expect("should load");
         assert_eq!(c.local_to_remote.len(), 1);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn sni_disable_conflicts_with_sni_override() {
+        let toml = r#"
+            remote_addr = "wss://server.example.com:443"
+            tls_sni_disable = true
+            tls_sni_override = "example.com"
+        "#;
+        let c: Client = toml::from_str(toml).expect("parses");
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn sni_disable_conflicts_with_ech_enable() {
+        let toml = r#"
+            remote_addr = "wss://server.example.com:443"
+            tls_sni_disable = true
+            tls_ech_enable = true
+        "#;
+        let c: Client = toml::from_str(toml).expect("parses");
+        assert!(c.validate().is_err());
     }
 }
