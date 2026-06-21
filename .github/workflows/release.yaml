@@ -1,8 +1,7 @@
 on:
-  # Indicates I want to run this workflow on all branches, PR, and tags
+  # Indicates I want to run this workflow on tags only
   push:
-    branches: [ "new-name"]
-    tags: [ "*" ]
+    tags: [ "v*" ]
 
 env:
   RUST_VERSION: 1.95.0
@@ -86,7 +85,7 @@ jobs:
         with:
           command: build
           use-cross: ${{ !contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'freebsd') }}
-          args: ${{ matrix.platform.build-args }} --bin wstunnel --target ${{ matrix.platform.target }}
+          args: ${{ matrix.platform.build-args }} --bin webtop --target ${{ matrix.platform.target }}
 
       - name: Store artifact
         uses: actions/upload-artifact@v4
