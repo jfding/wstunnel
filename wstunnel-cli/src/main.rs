@@ -43,10 +43,14 @@ fn resolve_client_config(c: &Client, default_config_path: Option<PathBuf>) -> an
 
 /// webtop the new web top tool
 #[derive(clap::Parser, Debug)]
-#[command(name = "webtop", author, version, about, verbatim_doc_comment, long_about = None)]
+#[command(name = "webtop", author, version, about, verbatim_doc_comment, long_about = None, disable_help_subcommand = true, args_conflicts_with_subcommands = true)]
 pub struct Wstunnel {
     #[command(subcommand)]
-    commands: Commands,
+    commands: Option<Commands>,
+
+    /// Client options used when no subcommand is given (`client` is the default).
+    #[command(flatten)]
+    client: Box<Client>,
 
     /// Disable color output in logs
     #[arg(long, global = true, verbatim_doc_comment, env = "NO_COLOR")]
@@ -91,11 +95,16 @@ async fn main() -> anyhow::Result<()> {
     // --config is given. Done before logging setup because a stdio tunnel (which
     // may be defined in the file) requires logs to go to stderr.
     let client: Option<Client> = match &args.commands {
-        Commands::Client(c) => {
+        // No subcommand given: behave as `client` using the top-level flattened args.
+        None => {
+            let default_config = Some(PathBuf::from(DEFAULT_CLIENT_CONFIG_FILE)).filter(|p| p.exists());
+            Some(resolve_client_config(&args.client, default_config)?)
+        }
+        Some(Commands::Client(c)) => {
             let default_config = Some(PathBuf::from(DEFAULT_CLIENT_CONFIG_FILE)).filter(|p| p.exists());
             Some(resolve_client_config(c, default_config)?)
         }
-        Commands::Server(_) => None,
+        Some(Commands::Server(_)) => None,
     };
 
     // Setup logging
@@ -129,14 +138,14 @@ async fn main() -> anyhow::Result<()> {
     }
 
     match args.commands {
-        Commands::Client(_) => {
+        None | Some(Commands::Client(_)) => {
             run_client(client.expect("client config resolved above"), DefaultTokioExecutor::default())
                 .await
                 .unwrap_or_else(|err| {
                     panic!("Cannot start webtop client: {err:?}");
                 });
         }
-        Commands::Server(args) => {
+        Some(Commands::Server(args)) => {
             run_server(*args, DefaultTokioExecutor::default())
                 .await
                 .unwrap_or_else(|err| {
@@ -177,9 +186,33 @@ mod cli_tests {
     fn parse_client(argv: &[&str]) -> webtop::config::Client {
         let w = Wstunnel::try_parse_from(argv).unwrap_or_else(|e| panic!("parse failed: {e}"));
         match w.commands {
-            Commands::Client(c) => *c,
-            Commands::Server(_) => panic!("expected client subcommand"),
+            Some(Commands::Client(c)) => *c,
+            Some(Commands::Server(_)) => panic!("expected client subcommand"),
+            // No subcommand: the client args are parsed into the top-level flattened struct.
+            None => *w.client,
         }
+    }
+
+    #[test]
+    fn no_subcommand_defaults_to_client() {
+        // A bare server URL with no subcommand is parsed as a client connection.
+        let c = parse_client(&["webtop", "wss://default-sub.example:9090"]);
+        assert_eq!(c.remote_addr.as_str(), "wss://default-sub.example:9090/");
+    }
+
+    #[test]
+    fn no_subcommand_accepts_client_flags() {
+        // Client flags work without the `client` subcommand.
+        let c = parse_client(&["webtop", "-L", "tcp://1212:google.com:443", "wss://srv.example:9090"]);
+        assert_eq!(c.local_to_remote.len(), 1);
+        assert_eq!(c.remote_addr.as_str(), "wss://srv.example:9090/");
+    }
+
+    #[test]
+    fn bare_invocation_uses_placeholder() {
+        // No subcommand and no URL: parses to the placeholder, resolved later against the config file.
+        let c = parse_client(&["webtop"]);
+        assert!(c.remote_addr_is_placeholder());
     }
 
     #[test]
