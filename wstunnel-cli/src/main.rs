@@ -62,6 +62,17 @@ pub enum Commands {
 async fn main() -> anyhow::Result<()> {
     let args = Wstunnel::parse();
 
+    // Resolve the effective client config up front: load from the TOML file when
+    // --config is given. Done before logging setup because a stdio tunnel (which
+    // may be defined in the file) requires logs to go to stderr.
+    let client: Option<Client> = match &args.commands {
+        Commands::Client(c) => Some(match &c.config {
+            Some(path) => Client::from_config_file(path)?,
+            None => (**c).clone(),
+        }),
+        Commands::Server(_) => None,
+    };
+
     // Setup logging
     let mut env_filter = EnvFilter::builder().parse(&args.log_lvl).expect("Invalid log level");
     if !(args.log_lvl.contains("h2::") || args.log_lvl.contains("h2=")) {
@@ -73,8 +84,8 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(env_filter);
 
     // stdio tunnel capture stdio, so need to log into stderr
-    if let Commands::Client(args) = &args.commands {
-        if args
+    if let Some(client) = &client {
+        if client
             .local_to_remote
             .iter()
             .filter(|x| matches!(x.local_protocol, LocalProtocol::Stdio { .. }))
@@ -93,8 +104,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     match args.commands {
-        Commands::Client(args) => {
-            run_client(*args, DefaultTokioExecutor::default())
+        Commands::Client(_) => {
+            run_client(client.expect("client config resolved above"), DefaultTokioExecutor::default())
                 .await
                 .unwrap_or_else(|err| {
                     panic!("Cannot start webtop client: {err:?}");
@@ -110,4 +121,37 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn config_flag_parses_alone() {
+        let res = Wstunnel::try_parse_from(["webtop", "client", "--config", "x.toml"]);
+        assert!(res.is_ok(), "expected ok, got {res:?}");
+    }
+
+    #[test]
+    fn config_flag_conflicts_with_tunnel() {
+        let res = Wstunnel::try_parse_from([
+            "webtop", "client", "--config", "x.toml", "-L", "tcp://1212:google.com:443",
+        ]);
+        assert!(res.is_err(), "expected conflict error, got {res:?}");
+    }
+
+    #[test]
+    fn config_flag_conflicts_with_server_url() {
+        let res = Wstunnel::try_parse_from([
+            "webtop", "client", "--config", "x.toml", "wss://server.example.com:443",
+        ]);
+        assert!(res.is_err(), "expected conflict error, got {res:?}");
+    }
+
+    #[test]
+    fn client_without_config_requires_server_url() {
+        let res = Wstunnel::try_parse_from(["webtop", "client", "-L", "tcp://1212:google.com:443"]);
+        assert!(res.is_err(), "expected missing-remote_addr error, got {res:?}");
+    }
 }
