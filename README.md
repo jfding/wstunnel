@@ -297,9 +297,8 @@ Unknown keys are rejected, so typos fail fast rather than being silently ignored
 #### Default config file
 
 If you do **not** pass `--config` and do **not** give a server URL on the command
-line, wstunnel looks for a file named `.webtop.toml` in the current directory and
-loads it if present (ignored if absent). So in a directory containing `.webtop.toml`
-you can simply run:
+line, wstunnel looks for `~/.config/.webtop.toml` and loads it if present (ignored
+if absent). So once that file exists you can simply run:
 
 ```bash
 wstunnel client

@@ -17,15 +17,20 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-/// Default client config file looked up in the current directory when neither `--config`
-/// nor a server URL is given on the command line.
-const DEFAULT_CLIENT_CONFIG_FILE: &str = ".webtop.toml";
+/// Default client config file, relative to the user's home directory, looked up when
+/// neither `--config` nor a server URL is given on the command line.
+const DEFAULT_CLIENT_CONFIG_RELPATH: &str = ".config/.webtop.toml";
+
+/// Build the default config path (`~/.config/.webtop.toml`) from the given home directory.
+/// Returns `None` when the home directory is unknown.
+fn default_config_path(home: Option<PathBuf>) -> Option<PathBuf> {
+    home.map(|h| h.join(DEFAULT_CLIENT_CONFIG_RELPATH))
+}
 
 /// Decide where the effective client config comes from:
-///   1. `--config <FILE>` explicitly given  -> load that file (config-only).
-///   2. no server URL on the CLI            -> load `default_config_path` if present,
-///                                             else error (nothing to connect to).
-///   3. a server URL was given on the CLI    -> use the CLI args as-is.
+/// 1. `--config <FILE>` explicitly given: load that file (config-only).
+/// 2. no server URL on the CLI: load `default_config_path` if present, else error.
+/// 3. a server URL was given on the CLI: use the CLI args as-is.
 fn resolve_client_config(c: &Client, default_config_path: Option<PathBuf>) -> anyhow::Result<Client> {
     if let Some(path) = &c.config {
         return Client::from_config_file(path);
@@ -35,7 +40,7 @@ fn resolve_client_config(c: &Client, default_config_path: Option<PathBuf>) -> an
             return Client::from_config_file(&path);
         }
         anyhow::bail!(
-            "no server URL provided. Pass it on the command line, use --config <FILE>, or create {DEFAULT_CLIENT_CONFIG_FILE} in the current directory"
+            "no server URL provided. Pass it on the command line, use --config <FILE>, or create ~/{DEFAULT_CLIENT_CONFIG_RELPATH}"
         );
     }
     Ok(c.clone())
@@ -97,11 +102,11 @@ async fn main() -> anyhow::Result<()> {
     let client: Option<Client> = match &args.commands {
         // No subcommand given: behave as `client` using the top-level flattened args.
         None => {
-            let default_config = Some(PathBuf::from(DEFAULT_CLIENT_CONFIG_FILE)).filter(|p| p.exists());
+            let default_config = default_config_path(std::env::home_dir()).filter(|p| p.exists());
             Some(resolve_client_config(&args.client, default_config)?)
         }
         Some(Commands::Client(c)) => {
-            let default_config = Some(PathBuf::from(DEFAULT_CLIENT_CONFIG_FILE)).filter(|p| p.exists());
+            let default_config = default_config_path(std::env::home_dir()).filter(|p| p.exists());
             Some(resolve_client_config(c, default_config)?)
         }
         Some(Commands::Server(_)) => None,
@@ -213,6 +218,15 @@ mod cli_tests {
         // No subcommand and no URL: parses to the placeholder, resolved later against the config file.
         let c = parse_client(&["webtop"]);
         assert!(c.remote_addr_is_placeholder());
+    }
+
+    #[test]
+    fn default_config_path_is_under_home_config() {
+        assert_eq!(
+            default_config_path(Some(PathBuf::from("/home/alice"))),
+            Some(PathBuf::from("/home/alice/.config/.webtop.toml"))
+        );
+        assert_eq!(default_config_path(None), None);
     }
 
     #[test]
